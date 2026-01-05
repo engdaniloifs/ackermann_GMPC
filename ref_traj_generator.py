@@ -54,8 +54,8 @@ class TrajGenerator:
             self.generate_pose_regulation_traj(config['param'])
         elif config['type'] == TrajType.CONSTANT:
             self.generate_circle_traj(config['param'])
-        elif config['type'] == 'zigzag':
-            self.generate_zigzag_traj(config['param'])
+        elif config['type'] == 'CIRCLE_LEADER_FOLLOWER':
+            self.generate_circle_leader_follower_traj(config['param'])
         elif config['type'] == 'spiral':
             self.generate_spiral_traj(config['param'])
         elif config['type'] == 'sharp_turn':
@@ -87,43 +87,48 @@ class TrajGenerator:
             self.ref_state[:, i + 1] = np.array([X_next.x(), X_next.y(), X_next.angle()])
             self.ref_control[:, i + 1] = vel_cmd
     
-    def generate_zigzag_traj(self, config):
+    def generate_circle_leader_follower_traj(self, config):
         self.dt = config.get('dt', 0.05)
         self.nTraj = config.get('nTraj', 170)
-        init_state = config.get('start_state', np.array([0, 0, 0]))
+        init_state = config.get('start_state', np.array([-2.5, -1.5, 0]))
+        middle_state = config.get('middle_state', np.array([0, -1.5, 0]))
         v = config.get('linear_vel', 0.5)
-        zig_w = config.get('angular_vel', 1.0)
-        # input("Generating zigzag trajectory with angular velocity: "+str(zig_w))
-        w = zig_w
+        w_set = config.get('angular_vel', 1.0)
+        radius = config.get('radius', 0)
+        if radius != 0:
+            w_set = v / radius
+        t_1 = abs(middle_state[0] - init_state[0]) / v
+        t_circle = 2.0 * np.pi / w_set
+        self.nTraj = int((t_1 + t_circle + t_1) / self.dt)
+        w_init  = 0.0
         self.ref_state = np.zeros((self.nState, self.nTraj))  # [x, y, theta]
         self.ref_control = np.zeros((self.nControl, self.nTraj))  # [v, w]
         self.ref_state[:, 0] = init_state
+        w = w_init
+
         T = 0.0
+        FSM = 0  # finite state machine for changing angular velocity
         for i in range(self.nTraj - 1):  # 0 to nTraj-2
             
             vel_cmd = np.array([v, w])
-            
+            if FSM == 0:
+                w = w_init
+                if abs(self.ref_state[0,i] - middle_state[0]) <= 0.1 and abs(self.ref_state[1,i] - middle_state[1]) <= 0.1:
+                    FSM = 1
+                    T = 0.0
+            elif FSM == 1:
+                w = w_set
+                if T >= t_circle:
+                    FSM = 2
+            elif FSM == 2:
+                w = 0.0
+                
             twist = self.vel_cmd_to_local_vel(vel_cmd)
             X = SE2(self.ref_state[0, i], self.ref_state[1, i], self.ref_state[2, i])
             X_next = X + SE2Tangent(twist * self.dt)
             self.ref_state[:, i + 1] = np.array([X_next.x(), X_next.y(), X_next.angle()])
             self.ref_control[:, i + 1] = vel_cmd
-            if T < 3.0:
-                w = zig_w
-            if 3 < T < 15.0:
-                w = 0.0
-            if 15 < T < 18.0:
-                w = -zig_w
-            if 18.0 < T < 30.0:
-                w = 0.0
-            if 30.0 < T < 33.0:
-                w = zig_w
-            if 33.0 < T < 45.0:
-                w = 0.0
-            if 45.0 < T < 48.0:
-                w = -zig_w
-            if 48.0 < T < 60.0:
-                w = 0.0
+            
             T += self.dt
         self.ref_control[:, self.nTraj - 1] = self.ref_control[:, self.nTraj - 2]
 

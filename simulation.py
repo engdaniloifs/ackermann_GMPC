@@ -18,11 +18,13 @@ def wrap_to_pi(a):
 
 controller_type = ControllerType.GMPC
 init_state = np.array([0, 0, 0])
-traj_config = {'type': 'eight_easy',
-                   'param': {'start_state': np.array([0, 0, 0]),
+traj_config = {'type': 'CIRCLE_LEADER_FOLLOWER',
+                   'param': {'start_state': np.array([-2.5, -1.5, 0]),
+                             'middle_state': np.array([0, -1.5, 0]),
                              'dt': 0.1,
-                              'linear_vel': 0.1,
-                              'angular_vel': 0.1,  # don't change this
+                            'linear_vel': 0.1,
+                            'angular_vel': 0.1,  # don't change this
+                            'radius': 0.4,
                              'nTraj': 600}}
 
 traj_gen = TrajGenerator(traj_config)
@@ -30,7 +32,7 @@ ref_state, ref_control, dt = traj_gen.get_traj()
 
 
 controller = geometric_mpc.GeometricMPC(traj_config)
-Q = np.array([20000, 20000, 2000])
+Q = np.array([0.5, 0.5, 0.1])
 R = 0.3
 N = 10
 
@@ -47,8 +49,8 @@ nTraj = ref_state.shape[1]
 x = np.zeros((3, nTraj))
 u = np.zeros((2, nTraj))
 
-x[0,0] = -1
-x[1,0] = -1
+x[0,0] = -2.5
+x[1,0] = -1.5
 x[2,0] = 0
 t = 0
 
