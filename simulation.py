@@ -22,9 +22,9 @@ traj_config = {'type': 'CIRCLE_LEADER_FOLLOWER',
                    'param': {'start_state': np.array([-2.5, -1.5, 0]),
                              'middle_state': np.array([0, -1.5, 0]),
                              'dt': 0.1,
-                            'linear_vel': 0.1,
+                            'linear_vel': 0.5,
                             'angular_vel': 0.1,  # don't change this
-                            'radius': 0.4,
+                            'radius': 1.0,
                              'nTraj': 600}}
 
 traj_gen = TrajGenerator(traj_config)
