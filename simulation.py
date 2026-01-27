@@ -22,7 +22,7 @@ traj_config = {'type': 'CIRCLE_LEADER_FOLLOWER',
                    'param': {'start_state': np.array([-2.5, -1.5, 0]),
                              'middle_state': np.array([0, -1.5, 0]),
                              'dt': 0.1,
-                            'linear_vel': 0.5,
+                            'linear_vel': 0.50,
                             'angular_vel': 0.1,  # don't change this
                             'radius': 1.0,
                              'nTraj': 600}}
@@ -32,7 +32,7 @@ ref_state, ref_control, dt = traj_gen.get_traj()
 
 
 controller = geometric_mpc.GeometricMPC(traj_config)
-Q = np.array([0.5, 0.5, 0.1])
+Q = np.array([20000.0, 20000.0, 2000.0])
 R = 0.3
 N = 10
 
@@ -49,6 +49,8 @@ nTraj = ref_state.shape[1]
 x = np.zeros((3, nTraj))
 u = np.zeros((2, nTraj))
 
+desired_u = np.zeros((2, nTraj))
+
 x[0,0] = -2.5
 x[1,0] = -1.5
 x[2,0] = 0
@@ -61,23 +63,35 @@ w_max = 3.0
 
 controller.set_control_bound(v_min, v_max, w_min, w_max)
 
+error_dist = np.zeros(nTraj)
+
+max_acceleration = 0.5  # m/s^2
 
 for i in range(1,nTraj):
     
-    curr_state = x[:,i-1]  + dt*np.array([u[0,i-1]*np.cos(x[2,i-1]), 
+    curr_state = x[:,i-1]   + dt*np.array([u[0,i-1]*np.cos(x[2,i-1]), 
                                          u[0,i-1]*np.sin(x[2,i-1]),
                                   u[0,i-1] * 1.0 / L* np.tan(u[1,i-1])])
     
     x[:,i] = curr_state
     x[2,i] = wrap_to_pi(x[2,i])
 
-    u[:, i] = controller.solve(x[:, i], t)
+    desired_u[:,i]= controller.solve(x[:, i], t)
 
-    u[1, i] = np.arctan2(L * u[1, i],u[0,i])  # convert curvature to steering angle
+    # acceleration = (desired_u[0, i] - u[0, i-1]) / dt
+
+    # acceleration = np.clip(acceleration, -max_acceleration, max_acceleration)
+
+
+    u[0, i] = desired_u[0, i] #+ acceleration * dt + 0.05*np.random.uniform(-1, 1) # linear velocity
+    
+    desired_phi = np.arctan2(L * desired_u[1, i],u[0,i])  # convert curvature to steering angle
+
+    u[1,i] = desired_phi
 
     u[1,i] = np.clip(u[1,i],-0.5,0.5)
     
-    
+    error_dist[i] = np.hypot(x[0,i] - ref_state[0,i], x[1,i] - ref_state[1,i])
    
     t += dt
     print("step",i,"out of ",nTraj)
