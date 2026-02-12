@@ -101,7 +101,7 @@ def step(x, u, dt):
 
 
 
-controller_type = 'FBLINEARIZATION'  # 'GMPC', 'NMPC', 'FBLINEARIZATION'
+controller_type = 'NMPC'  # 'GMPC', 'NMPC', 'FBLINEARIZATION'
 if controller_type == 'GMPC':
     init_state = np.array([0, 0, 0])
     traj_config = {'type': 'CIRCLE_LEADER_FOLLOWER',
@@ -119,7 +119,7 @@ elif controller_type == 'NMPC':
                     'param': {'start_state': np.array([-2.5, -1.5, 0, 0]),
                                 'middle_state': np.array([0, -1.5, 0, 0]),
                                 'dt': 0.05,
-                                'linear_vel': 0.75,
+                                'linear_vel': 0.25,
                                 'angular_vel': 0.1,  # don't change this
                                 'radius': 1.0,
                                 'nTraj': 600,
@@ -146,9 +146,9 @@ if controller_type == 'GMPC':
     N = 10
     controller.setup_solver(Q, R, N)
 if controller_type == 'NMPC':
-    controller = nonlinear_mpc.NonlinearMPC(traj_config)
-    Q = np.array([20000, 20000, 20000, 20000])
-    R = 0.8
+    controller = nonlinear_mpc.NonlinearMPC(traj_config,model_config={}, dt= dt)
+    Q = np.array([300, 300, 600, 600])
+    R = np.array([500, 0.8])
     N = 10
     controller.setup_solver(Q, R, N)
 if controller_type == 'FBLINEARIZATION':
@@ -157,6 +157,8 @@ if controller_type == 'FBLINEARIZATION':
 
 
 ref_state, ref_control, dt = traj_gen.get_traj()
+euclidean_error = np.zeros(ref_state.shape[1])
+theta_error = np.zeros(ref_state.shape[1])
 
 L = 0.256
 
@@ -224,7 +226,7 @@ elif controller_type == 'NMPC':
 
     desired_u = np.zeros((2, nTraj))
 
-    x[0,0] = -2.5
+    x[0,0] = -2.9
     x[1,0] = -1.5
     x[2,0] = 0
     x[3,0] = 0
@@ -232,8 +234,8 @@ elif controller_type == 'NMPC':
 
     t = 0
 
-    v_min = -1.5
-    v_max= 1.5
+    v_min = -1.75
+    v_max= 1.75
 
 
     controller.set_control_bound(v_min, v_max)
@@ -249,6 +251,8 @@ elif controller_type == 'NMPC':
         #x[:,i] = step(x[:,i-1], desired_u[:,i-1], dt)
         x[2,i] = wrap_to_pi(x[2,i])
         curr_state = np.array([x[0,i], x[1,i], x[2,i]])
+        euclidean_error[i] = np.hypot(x[0,i] - ref_state[0,i], x[1,i] - ref_state[1,i])
+        theta_error[i] = wrap_to_pi(x[2,i] - ref_state[2,i])
         curr_state_1 = np.array([x[0,i], x[1,i], x[2,i], x[3,i-1]])
 
         desired_u[:,i]= controller.solve(curr_state_1, t)
@@ -366,6 +370,20 @@ ax1c = plt.subplot(212)
 plt.plot(t, x[3, :] * 180.0 / np.pi)
 plt.grid(color="0.95")
 plt.ylabel(r"$\phi$ [deg]")
+plt.xlabel(r"$t$ [s]")
+plt.legend()
+plt.plot()
+
+fig4 = plt.figure(4)
+ax4a = plt.subplot(211)
+plt.plot(t, euclidean_error)
+plt.grid(color="0.95")
+plt.ylabel(r"Euclidean error [m]")
+plt.setp(ax4a, xticklabels=[])
+ax4b = plt.subplot(212)
+plt.plot(t, theta_error * 180.0 / np.pi)
+plt.grid(color="0.95")
+plt.ylabel(r"Heading error [deg]")
 plt.xlabel(r"$t$ [s]")
 plt.legend()
 plt.plot()

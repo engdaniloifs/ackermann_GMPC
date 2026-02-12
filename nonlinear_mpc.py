@@ -95,13 +95,11 @@ class UnicycleModel:
         self.symbolic = FirstOrderModel(dynamics, cost, self.dt, params)
 
 class BycicleModel:
-    def __init__(self, config: dict = {}, pyb_freq: int = 50, **kwargs):
+    def __init__(self, config: dict = {}, dt = 50, **kwargs):
         self.nState = 4
         self.nControl = 2
 
-        self.control_freq = pyb_freq
-        self.dt = 1. / self.control_freq
-
+        self.dt = dt
         # setup configuration
         self.config = {'cost_type': CostType.POSITION_EULER, 'dynamics_type': DynamicsType.EULER_FIRST_ORDER}
         if self.config['dynamics_type'] == DynamicsType.EULER_FIRST_ORDER:
@@ -145,13 +143,18 @@ class BycicleModel:
             pos_cost = 0.5 * (X[:2] - Xr[:2]).T @ Q[:2, :2] @ (X[:2] - Xr[:2])
             theta = X[2]
             theta_target = Xr[2]
-            euler_diff = 1 - ca.cos(theta - theta_target)
-            euler_cost = 0.5 * euler_diff.T @ Q[2:3, 2:3] @ euler_diff
+            dth = theta - theta_target
+            qth = Q[2,2]
+            euler_cost = 0.5*qth*(1 - ca.cos(dth))
+
+            # euler_cost = 0.5 * euler_diff.T @ Q[2:3, 2:3] @ euler_diff
 
             phi = X[3]
             phi_target = Xr[3]
-            euler_phi_diff = 1 - ca.cos(phi - phi_target)
-            euler_phi_cost = 0.5 * euler_phi_diff.T @ Q[3:4, 3:4] @ euler_phi_diff
+            dphi = phi - phi_target
+            qphi = Q[3,3]
+            euler_phi_cost = 0.5*qphi*(1 - ca.cos(dphi))
+            #euler_phi_cost = 0.5 * euler_phi_diff.T @ Q[3:4, 3:4] @ euler_phi_diff
             cost_func = pos_cost + euler_cost + euler_phi_cost + 0.5 * (U - Ur).T @ R @ (U - Ur)
 
         cost = {'cost_func': cost_func, 'vars': {'X': X, 'Xr': Xr, 'U': U, 'Ur': Ur, 'Q': Q, 'R': R}}
@@ -165,11 +168,11 @@ class BycicleModel:
         self.symbolic = FirstOrderModel(dynamics, cost, self.dt, params)
     
 class NonlinearMPC:
-    def __init__(self, ref_traj_config, model_config={}):
+    def __init__(self, ref_traj_config, model_config={}, dt=0.05):
         self.controllerType = ControllerType.NMPC
         config = model_config
         # dynamics
-        self.model = BycicleModel(config).symbolic
+        self.model = BycicleModel(config, dt).symbolic
         self.nState = self.model.nx  # 4 (x, y, theta,phi)
         self.nControl = self.model.nu  # 2 (v, steering_ratio)
         self.solve_time = 0.0
