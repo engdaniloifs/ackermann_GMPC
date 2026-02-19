@@ -29,7 +29,7 @@ the reference trajectory is generated using TrajGenerator class in ref_traj_gene
 """
 
 
-class GeometricMPC:
+class GeometricMPC_ackermann:
     def __init__(self, ref_traj_config, linearization_type=LiniearizationType.ADJ):
         self.controllerType = ControllerType.GMPC
         self.nState = 3  # twist error (se2 vee) R^3
@@ -52,31 +52,18 @@ class GeometricMPC:
     def set_ref_traj(self, traj_config):
         traj_generator = TrajGenerator(traj_config)
         self.ref_state, self.ref_control, self.dt = traj_generator.get_traj()
-        v_ref = self.ref_control[0, :]
-        omega_ref = self.ref_control[1, :]
-        L = 0.256
-
-        kappa_ref = np.zeros_like(omega_ref)
-
-        for i in range(len(v_ref)):
-            if abs(v_ref[i]) > 1e-3:  # avoid divide by zero
-                kappa_ref[i] = omega_ref[i] / v_ref[i]
-            else:
-                kappa_ref[i] = 0.0    # or keep previous curvature if you prefer
-            self.ref_control[1,i] = kappa_ref[i]
         self.nTraj = self.ref_state.shape[1]
 
     def setup_solver(self, Q=[20000, 20000, 2000], R=0.3, N=10):
         self.Q = np.diag(Q)
         self.R = R * np.diag(np.ones(self.nControl))
         self.N = N
-       # input(self.R)
 
-    def set_control_bound(self, v_min = -1.5, v_max= 1.5, kappa_min = -2.14, kappa_max= 2.14):
+    def set_control_bound(self, v_min = -100, v_max= 100, k_min = -100, k_max= 100):
         self.v_min = v_min
         self.v_max = v_max
-        self.kappa_min = kappa_min
-        self.kappa_max = kappa_max
+        self.k_min = k_min
+        self.k_max = k_max
 
 
     def solve(self, current_state, t):
@@ -101,7 +88,7 @@ class GeometricMPC:
         R = self.R
         N = self.N
         dt = self.dt
-        # input(R)
+
 
         # setup casadi solver
         opti = ca.Opti('conic')
@@ -124,7 +111,8 @@ class GeometricMPC:
                 A = -SE2Tangent(u_d).hat()
             B = np.eye(self.nTwist)
             h = -u_d
-            x_next = x_var[:, i] + dt * (A @ x_var[:, i] + B @ self.vel_cmd_to_local_twist(u_var[:, i]) + h)
+            x_next = x_var[:, i] + dt * (A @ x_var[:, i] + 
+                                         B @ self.vel_cmd_to_local_twist(self.ackerman_input_to_vel_cmd(u_var[:, i], u_d)) + h)
             opti.subject_to(x_var[:, i + 1] == x_next)
 
         # cost function
@@ -134,19 +122,17 @@ class GeometricMPC:
             u_d = self.ref_control[:, index]
             cost += ca.mtimes([x_var[:, i].T, Q, x_var[:, i]]) + ca.mtimes(
                 [(u_var[:, i]-u_d).T, R, (u_var[:, i]-u_d)])
-          #  print(u_var[:,i])
-            #print(u_d)
-            #input("ss")
- 
+
         cost += ca.mtimes([x_var[:, N].T, 100*Q, x_var[:, N]])
 
         # control bound
         opti.subject_to(u_var[0, :] >= self.v_min)
         opti.subject_to(u_var[0, :] <= self.v_max)
-        opti.subject_to(u_var[1, :] >= self.kappa_min)
-        opti.subject_to(u_var[1, :] <= self.kappa_max)
+        
+        opti.subject_to(u_var[1, :] >= self.k_min)
+        opti.subject_to(u_var[1, :] <= self.k_max)
+        
 
-      
         opts_setting = { 'printLevel': 'none'}
         opti.minimize(cost)
         opti.solver('qpoases',opts_setting)
@@ -160,8 +146,18 @@ class GeometricMPC:
     def get_solve_time(self):
         return self.solve_time
 
-    def vel_cmd_to_local_twist(self, vel_cmd):
-        return ca.vertcat(vel_cmd[0], 0, vel_cmd[0]*vel_cmd[1])
+    def ackerman_input_to_vel_cmd(self, ackermann_input,desired_vel_cmd_input):
+        v = ackermann_input[0]
+        k = ackermann_input[1]
+        v_d, w_d = desired_vel_cmd_input[0], desired_vel_cmd_input[1]
+        k_d = w_d / v_d if abs(v_d) > 1e-3 else 0.0
+        w = v_d * (k - k_d) +k_d * (v - v_d)
+
+        
+        return ca.vertcat(v, w)
+
+    def vel_cmd_to_local_twist(self, vel_cmd ):
+        return ca.vertcat(vel_cmd[0], 0, vel_cmd[1])
 
     def local_twist_to_vel_cmd(self, local_vel):
         return ca.vertcat(local_vel[0], local_vel[2])
