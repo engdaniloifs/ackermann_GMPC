@@ -7,6 +7,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import geometric_mpc
 import geometric_mpc_ackermann 
+import gmpc_ackermann_4states
 from GMPC_Tracking_Control_main.utils.enum_class import TrajType, ControllerType
 from ref_traj_generator import TrajGenerator
 import nonlinear_mpc
@@ -105,14 +106,14 @@ def step(x, u, dt):
 
 
 
-controller_type = 'GMPC_ACKERMANN'  # 'GMPC', 'NMPC', 'FBLINEARIZATION'
+controller_type = 'GMPC_ACKERMANN_PHI_DOT'  # 'GMPC', 'NMPC', 'FBLINEARIZATION'
 if controller_type == 'GMPC':
     init_state = np.array([0, 0, 0])
     traj_config = {'type': 'CIRCLE_LEADER_FOLLOWER',
                     'param': {'start_state': np.array([-2.5, -1.5, 0]),
                                 'middle_state': np.array([0, -1.5, 0]),
                                 'dt': 0.05,
-                                'linear_vel': 0.25,
+                                'linear_vel': 0.50,
                                 'angular_vel': 0.1,  # don't change this
                                 'radius': 1.0,
                                 'nTraj': 600,
@@ -134,7 +135,7 @@ elif controller_type == 'FBLINEARIZATION':
                     'param': {'start_state': np.array([-2.5, -1.5, 0, 0]),
                                 'middle_state': np.array([0, -1.5, 0, 0]),
                                 'dt': 0.05,
-                                'linear_vel': 0.25,
+                                'linear_vel': 0.75,
                                 'angular_vel': 0.1,  # don't change this
                                 'radius': 1.0,
                                 'nTraj': 600,
@@ -145,20 +146,30 @@ elif controller_type == 'GMPC_ACKERMANN':
                     'param': {'start_state': np.array([-2.5, -1.5, 0]),
                                 'middle_state': np.array([0, -1.5, 0]),
                                 'dt': 0.05,
-                                'linear_vel': 0.25,
+                                'linear_vel': 0.75,
                                 'angular_vel': 0.1,  # don't change this
                                 'radius': 1.0,
                                 'nTraj': 600,
                                 'controller_type': 'GMPC'}}
-
+elif controller_type == 'GMPC_ACKERMANN_PHI_DOT':
+    init_state = np.array([0, 0, 0,0])
+    traj_config = {'type': 'CIRCLE_LEADER_FOLLOWER',
+                    'param': {'start_state': np.array([-2.5, -1.5, 0, 0]),
+                                'middle_state': np.array([0, -1.5, 0,0]),
+                                'dt': 0.05,
+                                'linear_vel': 0.25,
+                                'angular_vel': 0.1,  # don't change this
+                                'radius': 1.0,
+                                'nTraj': 600,
+                                'controller_type': 'NEW_GMPC'}}
 traj_gen = TrajGenerator(traj_config)
 ref_state, ref_control, dt = traj_gen.get_traj()
 
 if controller_type == 'GMPC':
     controller = geometric_mpc.GeometricMPC(traj_config)
-    Q = np.array([600, 600, 150])
-    R = 1500
-    N = 13
+    Q = np.array([1000, 1000, 500000])
+    R = 10
+    N = 10
     controller.setup_solver(Q, R, N)
 if controller_type == 'NMPC':
     controller = nonlinear_mpc.NonlinearMPC(traj_config,model_config={}, dt= dt)
@@ -167,14 +178,22 @@ if controller_type == 'NMPC':
     N = 5
     controller.setup_solver(Q, R, N)
 if controller_type == 'FBLINEARIZATION':
-    controller = feedback_linearization.FBLinearizationController(Kp = np.array([1, 4.5, 16, 6]))
+    controller = feedback_linearization.FBLinearizationController(Kp = np.array([1, 3, 10, 6]))
 if controller_type == 'GMPC_ACKERMANN':
     controller = geometric_mpc_ackermann.GeometricMPC_ackermann(traj_config)
-    Q = np.array([600, 600, 150])
-    R = np.array([1500, 0.05])
-    N = 13
+    Q = np.array([200,200, 90])
+    R = np.array([300, 3.0])
+    N = 7
+    controller.setup_solver(Q, R, N)
+if controller_type == 'GMPC_ACKERMANN_PHI_DOT':
+    controller = gmpc_ackermann_4states.GeometricMPC_ackermann_phi_dot(traj_config)
+    Q = np.array([800, 800, 700, 100])
+    R = np.array([1100, 0.03])
+    N = 7
     controller.setup_solver(Q, R, N)
 
+#Mean Euclidean error [m]: 0.006274040575791363
+# Mean heading error [deg]: 0.038986042158534503
 
 ref_state, ref_control, dt = traj_gen.get_traj()
 euclidean_error = np.zeros(ref_state.shape[1])
@@ -218,8 +237,8 @@ if controller_type == 'GMPC':
         #x[:,i] = step(x[:,i-1], desired_u[:,i-1], dt)
         x[2,i] = wrap_to_pi(x[2,i])
         curr_state = np.array([x[0,i], x[1,i], x[2,i]])
-        euclidean_error[i] = np.hypot(x[0,i] - ref_state[0,i], x[1,i] - ref_state[1,i])
-        theta_error[i] = wrap_to_pi(x[2,i] - ref_state[2,i])
+        euclidean_error[i] = np.hypot(x[0,i] - ref_state[0,i-1], x[1,i] - ref_state[1,i-1])
+        theta_error[i] = wrap_to_pi(x[2,i] - ref_state[2,i-1])
         
         
         
@@ -271,8 +290,8 @@ elif controller_type == 'NMPC':
         #x[:,i] = step(x[:,i-1], desired_u[:,i-1], dt)
         x[2,i] = wrap_to_pi(x[2,i])
         curr_state = np.array([x[0,i], x[1,i], x[2,i]])
-        euclidean_error[i] = np.hypot(x[0,i] - ref_state[0,i], x[1,i] - ref_state[1,i])
-        theta_error[i] = wrap_to_pi(x[2,i] - ref_state[2,i])
+        euclidean_error[i] = np.hypot(x[0,i] - ref_state[0,i-1], x[1,i] - ref_state[1,i-1])
+        theta_error[i] = wrap_to_pi(x[2,i] - ref_state[2,i-1])
         curr_state_1 = np.array([x[0,i], x[1,i], x[2,i], x[3,i-1]])
 
         desired_u[:,i]= controller.solve(curr_state_1, t)
@@ -280,6 +299,7 @@ elif controller_type == 'NMPC':
         v_cmd = desired_u[0,i]
         phi_des = x[3,i-1] + steering_ratio*dt
         phi_des = np.clip(phi_des, -0.5, 0.5)
+        desired_u[1,i] = phi_des
         
         
         a_phi = 1.0 - np.exp(-dt / 0.16)
@@ -323,8 +343,8 @@ elif controller_type == 'FBLINEARIZATION':
         #x[:,i] = step(x[:,i-1], desired_u[:,i-1], dt)
         x[2,i] = wrap_to_pi(x[2,i])
         curr_state = np.array([x[0,i], x[1,i], x[2,i]])
-        euclidean_error[i] = np.hypot(x[0,i] - ref_state[0,i], x[1,i] - ref_state[1,i])
-        theta_error[i] = wrap_to_pi(x[2,i] - ref_state[2,i])
+        euclidean_error[i] = np.hypot(x[0,i] - ref_state[0,i-1], x[1,i] - ref_state[1,i-1])
+        theta_error[i] = wrap_to_pi(x[2,i] - ref_state[2,i-1])
         curr_state_1 = np.array([x[0,i], x[1,i], x[2,i], x[3,i-1]])
 
         desired_u[:,i]= controller.feedback_control(curr_state_1, ref_state[:,i-1], ref_control[:,i-1])
@@ -362,10 +382,10 @@ if controller_type == 'GMPC_ACKERMANN':
 
     v_min = -1.75
     v_max= 1.75
-    w_min = -2.34
-    w_max = 2.34
+    k_min = -2.14
+    k_max = 2.14
 
-    controller.set_control_bound(v_min, v_max, w_min, w_max)
+    controller.set_control_bound(v_min, v_max, k_min, k_max)
 
     error_dist = np.zeros(nTraj)
 
@@ -381,8 +401,8 @@ if controller_type == 'GMPC_ACKERMANN':
         #x[:,i] = step(x[:,i-1], desired_u[:,i-1], dt)
         x[2,i] = wrap_to_pi(x[2,i])
         curr_state = np.array([x[0,i], x[1,i], x[2,i]])
-        euclidean_error[i] = np.hypot(x[0,i] - ref_state[0,i], x[1,i] - ref_state[1,i])
-        theta_error[i] = wrap_to_pi(x[2,i] - ref_state[2,i])
+        euclidean_error[i] = np.hypot(x[0,i] - ref_state[0,i-1], x[1,i] - ref_state[1,i-1])
+        theta_error[i] = wrap_to_pi(x[2,i] - ref_state[2,i-1])
         
         
         
@@ -401,7 +421,62 @@ if controller_type == 'GMPC_ACKERMANN':
         t += dt
         
         print("step",i,"out of ",nTraj)
+if controller_type == 'GMPC_ACKERMANN_PHI_DOT':
+    nTraj = ref_state.shape[1]
 
+    x = np.zeros((5, nTraj))
+    u = np.zeros((2, nTraj))
+
+    desired_u = np.zeros((2, nTraj))
+
+    x[0,0] = -2.9
+    x[1,0] = -1.5
+    x[2,0] = 0
+    x[3,0] = 0
+    x[4,0] = 0
+
+    t = 0
+
+    v_min = -1.75
+    v_max= 1.75
+
+
+    controller.set_control_bound(v_min, v_max)
+
+
+    curr_state = np.array([x[0,0], x[1,0], x[2,0]])
+
+
+    curr_actuators = np.array([x[4,0], u[1,0]])
+    tau_v = 0.05
+    for i in range(1,nTraj):
+        x[:3,i] = rk4_step(curr_state, curr_actuators, dt, ackermann_kinematic_model)
+        #x[:,i] = step(x[:,i-1], desired_u[:,i-1], dt)
+        x[2,i] = wrap_to_pi(x[2,i])
+        curr_state = np.array([x[0,i], x[1,i], x[2,i]])
+        euclidean_error[i] = np.hypot(x[0,i] - ref_state[0,i-1], x[1,i] - ref_state[1,i-1])
+        theta_error[i] = wrap_to_pi(x[2,i] - ref_state[2,i-1])
+        curr_state_1 = np.array([x[0,i], x[1,i], x[2,i], x[3,i-1]])
+
+        desired_u[:,i]= controller.solve(curr_state_1, t)
+        steering_ratio = desired_u[1,i]
+        v_cmd = desired_u[0,i]
+        phi_des = x[3,i-1] + steering_ratio*dt
+        phi_des = np.clip(phi_des, -0.5, 0.5)
+        desired_u[1,i] = phi_des
+        
+        
+        a_phi = 1.0 - np.exp(-dt / 0.16)
+        a_v   = 1.0 - np.exp(-dt / tau_v)
+        
+        v_next   = x[4,i-1] + a_v   * (desired_u[0,i]  - x[4,i-1])  
+        
+        phi_next = x[3,i-1] + a_phi * (phi_des - x[3,i-1])
+        x[3,i] = phi_next
+        x[4,i] = v_next
+        curr_actuators = np.array([x[3,i], x[4,i]])
+        t += dt
+        print("step",i,"out of ",nTraj)
 
 
 t = np.arange(0.0,nTraj*dt, dt)
@@ -445,6 +520,7 @@ plt.ylabel(r"$v$ [m/s]")
 plt.setp(ax1b, xticklabels=[])
 ax1c = plt.subplot(212)
 plt.plot(t, x[3, :] * 180.0 / np.pi)
+plt.plot(t, desired_u[1,:]* 180.0 / np.pi, 'r--')
 plt.grid(color="0.95")
 plt.ylabel(r"$\phi$ [deg]")
 plt.xlabel(r"$t$ [s]")
@@ -456,9 +532,13 @@ ax4a = plt.subplot(211)
 plt.plot(t, euclidean_error)
 plt.grid(color="0.95")
 plt.ylabel(r"Euclidean error [m]")
+plt.yticks(np.arange(0, 0.1 + 0.01, 0.01))
+plt.ylim(0, 0.1)
 plt.setp(ax4a, xticklabels=[])
 ax4b = plt.subplot(212)
 plt.plot(t, theta_error * 180.0 / np.pi)
+plt.yticks(np.arange(-6, 6, 1))
+plt.ylim(-5, 5)
 plt.grid(color="0.95")
 plt.ylabel(r"Heading error [deg]")
 plt.xlabel(r"$t$ [s]")
@@ -471,7 +551,9 @@ plt.plot()
 
 
 
-
+print("Controller type:", controller_type)
+print("Mean Euclidean error [m]:", np.mean(euclidean_error))
+print("Mean heading error [deg]:", np.mean(np.abs(theta_error)) * 180.0 / np.pi)
 # x: [x, y, theta, phi, ...]
 # ref_state: [x_ref, y_ref, ...]
 # dt defined

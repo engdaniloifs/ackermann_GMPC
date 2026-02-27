@@ -60,6 +60,8 @@ class TrajGenerator:
                 self.generate_circle_leader_follower_traj(config['param'])
             if config['param'].get('controller_type', 'GMPC') == 'NMPC' or config['param'].get('controller_type', 'GMPC') == 'FBLINEARIZATION':
                 self.generate_circle_leader_follower_traj_other_controller(config['param'])
+            if config['param'].get('controller_type', 'GMPC') == 'NEW_GMPC':
+                self.generate_circle_leader_follower_traj_new_GMPC(config['param'])
         elif config['type'] == 'spiral':
             self.generate_spiral_traj(config['param'])
         elif config['type'] == 'sharp_turn':
@@ -112,6 +114,7 @@ class TrajGenerator:
 
         T = 0.0
         FSM = 0  # finite state machine for changing angular velocity
+        phi = 0.0
         for i in range(self.nTraj - 1):  # 0 to nTraj-2
             
             vel_cmd = np.array([v, w])
@@ -126,7 +129,11 @@ class TrajGenerator:
                     FSM = 2
             elif FSM == 2:
                 w = 0.0
-                
+            phi_des = np.arctan(w * 0.256 / v)
+            a_phi = 1.0 - np.exp(-self.dt / 0.16)
+            phi = phi + a_phi * (phi_des - phi)
+            w = v / 0.256 * np.tan(phi)
+            vel_cmd[1] = w
             twist = self.vel_cmd_to_local_vel(vel_cmd)
             X = SE2(self.ref_state[0, i], self.ref_state[1, i], self.ref_state[2, i])
             X_next = X + SE2Tangent(twist * self.dt)
@@ -187,6 +194,59 @@ class TrajGenerator:
             
             T += self.dt
         self.ref_control[:, self.nTraj - 1] = self.ref_control[:, self.nTraj - 2]
+
+    def generate_circle_leader_follower_traj_new_GMPC(self, config):
+        self.dt = config.get('dt', 0.05)
+        self.nTraj = config.get('nTraj', 170)
+        init_state = config.get('start_state', np.array([-2.5, -1.5, 0, 0]))
+        middle_state = config.get('middle_state', np.array([0, -1.5, 0, 0]))
+        v = config.get('linear_vel', 0.5)
+        w_set = config.get('angular_vel', 1.0)
+        radius = config.get('radius', 0)
+        if radius != 0:
+            w_set = v / radius
+        t_1 = abs(middle_state[0] - init_state[0]) / v
+        t_circle = 2.0 * np.pi / w_set
+        self.nTraj = int((t_1 + t_circle + t_1) / self.dt)
+        w_init  = 0.0
+        self.ref_state = np.zeros((4, self.nTraj))  # [x, y, theta, phi]
+        self.ref_control = np.zeros((3, self.nTraj))  # [v, w, phi_dot]
+        self.ref_state[:, 0] = init_state
+        w = w_init
+        phi = 0.0
+
+        T = 0.0
+        FSM = 0  # finite state machine for changing angular velocity
+        for i in range(self.nTraj - 1):  # 0 to nTraj-2
+            
+            vel_cmd = np.array([v, w])
+            if FSM == 0:
+                w = w_init
+                if abs(self.ref_state[0,i] - middle_state[0]) <= 0.1 and abs(self.ref_state[1,i] - middle_state[1]) <= 0.1:
+                    FSM = 1
+                    T = 0.0
+            elif FSM == 1:
+                w = w_set
+                
+                if T >= t_circle:
+                    FSM = 2
+            elif FSM == 2:
+                w = 0.0
+            phi_des = np.arctan(w * 0.256 / v)
+            phi_dot = (phi_des - phi) / 0.16
+            a_phi = 1.0 - np.exp(-self.dt / 0.16)
+            phi = self.ref_state[3, i] + a_phi * (phi_des - self.ref_state[3, i])
+            omega_twist = v / 0.256 * np.tan(phi)
+            vel_cmd[1] = omega_twist
+            twist = self.vel_cmd_to_local_vel(vel_cmd)
+            X = SE2(self.ref_state[0, i], self.ref_state[1, i], self.ref_state[2, i])
+            X_next = X + SE2Tangent(twist * self.dt)
+            self.ref_state[:, i + 1] = np.array([X_next.x(), X_next.y(), X_next.angle(), phi])
+            self.ref_control[:, i + 1] = np.array([v,omega_twist, phi_dot])
+            
+            T += self.dt
+        self.ref_control[:, self.nTraj - 1] = self.ref_control[:, self.nTraj - 2]
+        
 
     def generate_spiral_traj(self, config):
         self.dt = config.get('dt', 0.05)

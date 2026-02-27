@@ -29,12 +29,12 @@ the reference trajectory is generated using TrajGenerator class in ref_traj_gene
 """
 
 
-class GeometricMPC_ackermann:
+class GeometricMPC_ackermann_phi_dot:
     def __init__(self, ref_traj_config, linearization_type=LiniearizationType.ADJ):
         self.controllerType = ControllerType.GMPC
-        self.nState = 3  # twist error (se2 vee) R^3
+        self.nState = 4  # twist error (se2 vee) R^4
         self.nControl = 2  # velocity control (v, w) R^2
-        self.nTwist = 3  # twist (se2 vee) R^3
+        self.nTwist = 4  # twist (se2 vee) R^4
         self.nTraj = None
         self.ref_state = None
         self.ref_control = None
@@ -83,13 +83,13 @@ class GeometricMPC_ackermann:
         k = round(t / self.dt)
         curr_ref = self.ref_state[:, k]
         # get x init by calculating log between current state and reference state
-        x_init = SE2(curr_ref[0], curr_ref[1], curr_ref[2]).between(SE2(current_state[0], current_state[1], current_state[2])).log().coeffs()
+        SE_error = SE2(curr_ref[0], curr_ref[1], curr_ref[2]).between(SE2(current_state[0], current_state[1], current_state[2])).log().coeffs()
+        e_phi = current_state[3] - curr_ref[3]   # 1x1
+        x_init = ca.vertcat(SE_error, e_phi)
         Q = self.Q
         R = self.R
         N = self.N
         dt = self.dt
-        
-        
 
 
         # setup casadi solver
@@ -103,27 +103,23 @@ class GeometricMPC_ackermann:
 
         # setup dynamics constraints
         # x_next = A * x + B * u + h
-        dk_max = 0.01
-
 
         for i in range(N):
             index = min(k + i, self.nTraj - 1)
             u_d = self.ref_control[:, index]  # desir
-            u_d = self.vel_cmd_to_local_twist(u_d)
+            u_twist = self.vel_cmd_to_local_twist(u_d)
+
             if self.linearizationType == LiniearizationType.ADJ:
-                A = -SE2Tangent(u_d).smallAdj()
+                A = -SE2Tangent(u_twist).smallAdj()
+                A_aug = ca.blockcat([[A, ca.DM.zeros(3, 1)], [ca.DM.zeros(1, 4)]])
             elif self.linearizationType == LiniearizationType.WEDGE:
                 A = -SE2Tangent(u_d).hat()
             B = np.eye(self.nTwist)
-            h = -u_d
-            x_next = x_var[:, i] + dt * (A @ x_var[:, i] + 
-                                         B @ self.ackerman_input_to_local_twist(u_var[:, i], u_d) + h)
+            h = -self.ackermann_to_twist4(u_d)
+            x_next = x_var[:, i] + dt * (A_aug @ x_var[:, i] + 
+                                         B @ self.ackerman_input_to_local_twist(u_var[:, i], u_d, x_var[3, i]) + h)
             opti.subject_to(x_var[:, i + 1] == x_next)
-            if i < N - 1:
-                opti.subject_to(u_var[1, i + 1] - u_var[1, i] <= dk_max)
-                opti.subject_to(u_var[1, i + 1] - u_var[1, i] >= -dk_max)
-                
-                
+
 
         # cost function
         cost = 0
@@ -139,8 +135,8 @@ class GeometricMPC_ackermann:
         opti.subject_to(u_var[0, :] >= self.v_min)
         opti.subject_to(u_var[0, :] <= self.v_max)
         
-        opti.subject_to(u_var[1, :] >= self.k_min)
-        opti.subject_to(u_var[1, :] <= self.k_max)
+        # opti.subject_to(u_var[1, :] >= self.k_min)
+        # opti.subject_to(u_var[1, :] <= self.k_max)
         
 
         opts_setting = { 'printLevel': 'none'}
@@ -156,24 +152,28 @@ class GeometricMPC_ackermann:
     def get_solve_time(self):
         return self.solve_time
 
-    def ackerman_input_to_local_twist(self, ackermann_input,desired_vel_cmd_input):
+    def ackerman_input_to_local_twist(self, ackermann_input,desired_vel_cmd_input,e_phi):
         v = ackermann_input[0]
-        k = ackermann_input[1]
-        v_d, w_d = desired_vel_cmd_input[0], desired_vel_cmd_input[2]
-        k_d = w_d / v_d if abs(v_d) > 1e-3 else 0.0
-        w = v_d *k + k_d *v -w_d
+        phi_dot = ackermann_input[1]
+        v_d, w_d = desired_vel_cmd_input[0], desired_vel_cmd_input[1]
         
         
+        w = (w_d*v)/(v_d) + (e_phi*v_d)/0.256 if abs(v_d) > 1e-3 else 0.0
+
 
         
-        return ca.vertcat(v,0, w)
+        return ca.vertcat(v,0, w,phi_dot)
     
     def vel_cmd_to_ackerman_input(self, vel_cmd):
         v = vel_cmd[0]
-        w = vel_cmd[1]
-        k = w / v if abs(v) > 1e-3 else 0.0
+        phi_dot = vel_cmd[2]
         
-        return ca.vertcat(v, k)
+        return ca.vertcat(v, phi_dot)
+    def ackermann_to_twist4(self, ackermann_input):
+        v = ackermann_input[0]
+        omega = ackermann_input[1]
+        phi_dot = ackermann_input[2]
+        return ca.vertcat(v, 0, omega, phi_dot)
 
     def vel_cmd_to_local_twist(self, vel_cmd ):
         return ca.vertcat(vel_cmd[0], 0, vel_cmd[1])
