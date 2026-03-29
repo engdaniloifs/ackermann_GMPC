@@ -103,7 +103,7 @@ class GeometricMPC_ackermann:
 
         # setup dynamics constraints
         # x_next = A * x + B * u + h
-        dk_max = 0.01
+
 
 
         for i in range(N):
@@ -119,9 +119,6 @@ class GeometricMPC_ackermann:
             x_next = x_var[:, i] + dt * (A @ x_var[:, i] + 
                                          B @ self.ackerman_input_to_local_twist(u_var[:, i], u_d) + h)
             opti.subject_to(x_var[:, i + 1] == x_next)
-            if i < N - 1:
-                opti.subject_to(u_var[1, i + 1] - u_var[1, i] <= dk_max)
-                opti.subject_to(u_var[1, i + 1] - u_var[1, i] >= -dk_max)
                 
                 
 

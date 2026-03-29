@@ -158,7 +158,7 @@ class TrajGenerator:
         self.nTraj = int((t_1 + t_circle + t_1) / self.dt)
         w_init  = 0.0
         self.ref_state = np.zeros((4, self.nTraj))  # [x, y, theta, phi]
-        self.ref_control = np.zeros((self.nControl, self.nTraj))  # [v, w]
+        self.ref_control = np.zeros((3, self.nTraj))  # [v, w]
         self.ref_state[:, 0] = init_state
         w = w_init
         phi = 0.0
@@ -182,6 +182,7 @@ class TrajGenerator:
                 w = 0.0
             phi_des = np.arctan(w * 0.256 / v)
             phi_dot = (phi_des - phi) / 0.16
+            omega = w
             a_phi = 1.0 - np.exp(-self.dt / 0.16)
             phi = self.ref_state[3, i] + a_phi * (phi_des - self.ref_state[3, i])
             omega_twist = v / 0.256 * np.tan(phi)
@@ -190,7 +191,7 @@ class TrajGenerator:
             X = SE2(self.ref_state[0, i], self.ref_state[1, i], self.ref_state[2, i])
             X_next = X + SE2Tangent(twist * self.dt)
             self.ref_state[:, i + 1] = np.array([X_next.x(), X_next.y(), X_next.angle(), phi])
-            self.ref_control[:, i + 1] = np.array([v, phi_dot])
+            self.ref_control[:, i + 1] = np.array([v, phi_dot,omega])
             
             T += self.dt
         self.ref_control[:, self.nTraj - 1] = self.ref_control[:, self.nTraj - 2]

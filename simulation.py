@@ -143,21 +143,21 @@ elif controller_type == 'FBLINEARIZATION':
 elif controller_type == 'GMPC_ACKERMANN':
     init_state = np.array([0, 0, 0])
     traj_config = {'type': 'CIRCLE_LEADER_FOLLOWER',
-                    'param': {'start_state': np.array([-2.5, -1.5, 0]),
-                                'middle_state': np.array([0, -1.5, 0]),
+                    'param': {'start_state': np.array([-2.5, -1.5, 0, 0]),
+                                'middle_state': np.array([0, -1.5, 0,0]),
                                 'dt': 0.05,
                                 'linear_vel': 0.75,
                                 'angular_vel': 0.1,  # don't change this
                                 'radius': 1.0,
                                 'nTraj': 600,
-                                'controller_type': 'GMPC'}}
+                                'controller_type': 'NEW_GMPC'}}
 elif controller_type == 'GMPC_ACKERMANN_PHI_DOT':
     init_state = np.array([0, 0, 0,0])
     traj_config = {'type': 'CIRCLE_LEADER_FOLLOWER',
                     'param': {'start_state': np.array([-2.5, -1.5, 0, 0]),
                                 'middle_state': np.array([0, -1.5, 0,0]),
                                 'dt': 0.05,
-                                'linear_vel': 0.25,
+                                'linear_vel': 0.75,
                                 'angular_vel': 0.1,  # don't change this
                                 'radius': 1.0,
                                 'nTraj': 600,
@@ -174,7 +174,7 @@ if controller_type == 'GMPC':
 if controller_type == 'NMPC':
     controller = nonlinear_mpc.NonlinearMPC(traj_config,model_config={}, dt= dt)
     Q = np.array([600, 600, 150, 50])
-    R = np.array([1500, 0.05])
+    R = np.array([2292, 0.3])
     N = 5
     controller.setup_solver(Q, R, N)
 if controller_type == 'FBLINEARIZATION':
@@ -187,17 +187,19 @@ if controller_type == 'GMPC_ACKERMANN':
     controller.setup_solver(Q, R, N)
 if controller_type == 'GMPC_ACKERMANN_PHI_DOT':
     controller = gmpc_ackermann_4states.GeometricMPC_ackermann_phi_dot(traj_config)
-    Q = np.array([800, 800, 700, 100])
-    R = np.array([1100, 0.03])
+    Q = np.array([825, 1000, 900, 300])
+    R = np.array([2300, 0.1])
     N = 7
     controller.setup_solver(Q, R, N)
 
-#Mean Euclidean error [m]: 0.006274040575791363
-# Mean heading error [deg]: 0.038986042158534503
+# Mean Euclidean error [m]: 0.005862163169826806
+# Mean heading error [deg]: 0.025352677656339945
 
 ref_state, ref_control, dt = traj_gen.get_traj()
 euclidean_error = np.zeros(ref_state.shape[1])
 theta_error = np.zeros(ref_state.shape[1])
+speed_error = np.zeros(ref_state.shape[1])
+omega_error = np.zeros(ref_state.shape[1])
 
 L = 0.256
 
@@ -267,7 +269,7 @@ elif controller_type == 'NMPC':
 
     x[0,0] = -2.9
     x[1,0] = -1.5
-    x[2,0] = 0
+    x[2,0] = np.deg2rad(0)
     x[3,0] = 0
     x[4,0] = 0
 
@@ -292,6 +294,8 @@ elif controller_type == 'NMPC':
         curr_state = np.array([x[0,i], x[1,i], x[2,i]])
         euclidean_error[i] = np.hypot(x[0,i] - ref_state[0,i-1], x[1,i] - ref_state[1,i-1])
         theta_error[i] = wrap_to_pi(x[2,i] - ref_state[2,i-1])
+        speed_error[i] = x[4,i-1] - ref_control[0,i-1]
+        omega_error[i] = (wrap_to_pi(x[2,i] - x[2,i-1]))/dt - ref_control[2,i-1]
         curr_state_1 = np.array([x[0,i], x[1,i], x[2,i], x[3,i-1]])
 
         desired_u[:,i]= controller.solve(curr_state_1, t)
@@ -345,6 +349,8 @@ elif controller_type == 'FBLINEARIZATION':
         curr_state = np.array([x[0,i], x[1,i], x[2,i]])
         euclidean_error[i] = np.hypot(x[0,i] - ref_state[0,i-1], x[1,i] - ref_state[1,i-1])
         theta_error[i] = wrap_to_pi(x[2,i] - ref_state[2,i-1])
+        speed_error[i] = x[4,i-1] - ref_control[0,i-1]
+        omega_error[i] = (wrap_to_pi(x[2,i] - x[2,i-1]))/dt - ref_control[2,i-1]
         curr_state_1 = np.array([x[0,i], x[1,i], x[2,i], x[3,i-1]])
 
         desired_u[:,i]= controller.feedback_control(curr_state_1, ref_state[:,i-1], ref_control[:,i-1])
@@ -430,8 +436,8 @@ if controller_type == 'GMPC_ACKERMANN_PHI_DOT':
     desired_u = np.zeros((2, nTraj))
 
     x[0,0] = -2.9
-    x[1,0] = -1.5
-    x[2,0] = 0
+    x[1,0] = -1.45
+    x[2,0] = np.deg2rad(3)
     x[3,0] = 0
     x[4,0] = 0
 
@@ -456,6 +462,8 @@ if controller_type == 'GMPC_ACKERMANN_PHI_DOT':
         curr_state = np.array([x[0,i], x[1,i], x[2,i]])
         euclidean_error[i] = np.hypot(x[0,i] - ref_state[0,i-1], x[1,i] - ref_state[1,i-1])
         theta_error[i] = wrap_to_pi(x[2,i] - ref_state[2,i-1])
+        speed_error[i] = x[4,i-1] - ref_control[0,i-1]
+        omega_error[i] = (wrap_to_pi(x[2,i] - x[2,i-1]))/dt - ref_control[1,i-1]
         curr_state_1 = np.array([x[0,i], x[1,i], x[2,i], x[3,i-1]])
 
         desired_u[:,i]= controller.solve(curr_state_1, t)
@@ -478,7 +486,7 @@ if controller_type == 'GMPC_ACKERMANN_PHI_DOT':
         t += dt
         print("step",i,"out of ",nTraj)
 
-
+print("v_max", np.max(x[4,:]))
 t = np.arange(0.0,nTraj*dt, dt)
 # Plot the states as a function of time
 fig1 = plt.figure(1)
@@ -552,8 +560,10 @@ plt.plot()
 
 
 print("Controller type:", controller_type)
-print("Mean Euclidean error [m]:", np.mean(euclidean_error))
-print("Mean heading error [deg]:", np.mean(np.abs(theta_error)) * 180.0 / np.pi)
+print("Mean Euclidean error [cm]:", float(np.sqrt(np.mean(euclidean_error**2)))*100)
+print("Mean heading error [deg]:", float(np.sqrt(np.mean((theta_error* 180.0 / np.pi)**2))))
+print("Mean speed error [cm/s]:", float(np.sqrt(np.mean(speed_error**2)))*100)
+print("Mean omega error [rad/s]:", float(np.sqrt(np.mean(omega_error**2))))
 # x: [x, y, theta, phi, ...]
 # ref_state: [x_ref, y_ref, ...]
 # dt defined

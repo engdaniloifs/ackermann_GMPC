@@ -194,7 +194,7 @@ class NonlinearMPC:
     def get_curr_ref(self,t):
         k = round(t / self.dt)
         curr_ref_SE2_coeffs = self.ref_state[:, k]
-        curr_ref_twist_coeffs = self.ref_control[:, k]
+        curr_ref_twist_coeffs = self.ref_control[:-1, k]
         return curr_ref_SE2_coeffs, curr_ref_twist_coeffs
 
     def set_control_bound(self, v_min = -100, v_max= 100, w_min = -100, w_max= 100):
@@ -238,7 +238,7 @@ class NonlinearMPC:
         for i in range(N):
             index = min(k + i, self.nTraj - 1)
             x_target = self.ref_state[:, index]
-            u_target = self.ref_control[:, index]
+            u_target = self.ref_control[:-1, index]
             # u_target = np.zeros((2, 1))
             cost += self.cost_func(x_var[:, i], x_target, u_var[:, i], u_target, self.Q, self.R)
 

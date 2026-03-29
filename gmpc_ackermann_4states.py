@@ -156,9 +156,9 @@ class GeometricMPC_ackermann_phi_dot:
         v = ackermann_input[0]
         phi_dot = ackermann_input[1]
         v_d, w_d = desired_vel_cmd_input[0], desired_vel_cmd_input[1]
+        phi_d = np.arctan2(w_d*0.256, v_d) 
         
-        
-        w = (w_d*v)/(v_d) + (e_phi*v_d)/0.256 if abs(v_d) > 1e-3 else 0.0
+        w = (np.tan(phi_d)/0.256)*(v-v_d) + (v_d/(0.256*(np.cos(phi_d)**2)))*e_phi 
 
 
         
@@ -173,7 +173,7 @@ class GeometricMPC_ackermann_phi_dot:
         v = ackermann_input[0]
         omega = ackermann_input[1]
         phi_dot = ackermann_input[2]
-        return ca.vertcat(v, 0, omega, phi_dot)
+        return ca.vertcat(v, 0, 0, phi_dot)
 
     def vel_cmd_to_local_twist(self, vel_cmd ):
         return ca.vertcat(vel_cmd[0], 0, vel_cmd[1])

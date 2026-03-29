@@ -26,7 +26,7 @@ class FBLinearizationController:
         :return: vel_cmd:[v, w]
         """
         start_time = time.time()
-        v_d, phi_dot_d = ref_vel_cmd
+        v_d, phi_dot_d,_ = ref_vel_cmd
         state_diff = ref_state - curr_state
         state_diff[2] = self.wrap_to_pi(state_diff[2])   # theta error
         state_diff[3] = self.wrap_to_pi(state_diff[3])   # phi error
