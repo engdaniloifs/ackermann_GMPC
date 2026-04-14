@@ -124,7 +124,7 @@ elif controller_type == 'NMPC':
                     'param': {'start_state': np.array([-2.5, -1.5, 0, 0]),
                                 'middle_state': np.array([0, -1.5, 0, 0]),
                                 'dt': 0.05,
-                                'linear_vel': 0.75,
+                                'linear_vel': 0.50,
                                 'angular_vel': 0.1,  # don't change this
                                 'radius': 1.0,
                                 'nTraj': 600,
@@ -135,7 +135,7 @@ elif controller_type == 'FBLINEARIZATION':
                     'param': {'start_state': np.array([-2.5, -1.5, 0, 0]),
                                 'middle_state': np.array([0, -1.5, 0, 0]),
                                 'dt': 0.05,
-                                'linear_vel': 0.75,
+                                'linear_vel': 0.50,
                                 'angular_vel': 0.1,  # don't change this
                                 'radius': 1.0,
                                 'nTraj': 600,
@@ -146,7 +146,7 @@ elif controller_type == 'GMPC_ACKERMANN':
                     'param': {'start_state': np.array([-2.5, -1.5, 0, 0]),
                                 'middle_state': np.array([0, -1.5, 0,0]),
                                 'dt': 0.05,
-                                'linear_vel': 0.75,
+                                'linear_vel': 0.50,
                                 'angular_vel': 0.1,  # don't change this
                                 'radius': 1.0,
                                 'nTraj': 600,
@@ -157,7 +157,7 @@ elif controller_type == 'GMPC_ACKERMANN_PHI_DOT':
                     'param': {'start_state': np.array([-2.5, -1.5, 0, 0]),
                                 'middle_state': np.array([0, -1.5, 0,0]),
                                 'dt': 0.05,
-                                'linear_vel': 0.75,
+                                'linear_vel': 0.50,
                                 'angular_vel': 0.1,  # don't change this
                                 'radius': 1.0,
                                 'nTraj': 600,
@@ -167,14 +167,14 @@ ref_state, ref_control, dt = traj_gen.get_traj()
 
 if controller_type == 'GMPC':
     controller = geometric_mpc.GeometricMPC(traj_config)
-    Q = np.array([1000, 1000, 500000])
-    R = 10
-    N = 10
+    Q = np.array([8.5, 8.5, 7])
+    R = np.array([30,0.5])
+    N = 5
     controller.setup_solver(Q, R, N)
 if controller_type == 'NMPC':
     controller = nonlinear_mpc.NonlinearMPC(traj_config,model_config={}, dt= dt)
     Q = np.array([600, 600, 150, 50])
-    R = np.array([2292, 0.3])
+    R = np.array([2000, 0.05])
     N = 5
     controller.setup_solver(Q, R, N)
 if controller_type == 'FBLINEARIZATION':
@@ -182,14 +182,15 @@ if controller_type == 'FBLINEARIZATION':
 if controller_type == 'GMPC_ACKERMANN':
     controller = geometric_mpc_ackermann.GeometricMPC_ackermann(traj_config)
     Q = np.array([200,200, 90])
-    R = np.array([300, 3.0])
-    N = 7
+    R = np.array([600, 3.0])
+    N = 5
     controller.setup_solver(Q, R, N)
 if controller_type == 'GMPC_ACKERMANN_PHI_DOT':
     controller = gmpc_ackermann_4states.GeometricMPC_ackermann_phi_dot(traj_config)
-    Q = np.array([825, 1000, 900, 300])
-    R = np.array([2300, 0.1])
-    N = 7
+    Q = np.array([825, 1500, 1400, 100])
+    
+    R = np.array([2800, 0.05])
+    N = 5
     controller.setup_solver(Q, R, N)
 
 # Mean Euclidean error [m]: 0.005862163169826806
@@ -212,14 +213,14 @@ if controller_type == 'GMPC':
     desired_u = np.zeros((2, nTraj))
 
     x[0,0] = -2.9
-    x[1,0] = -1.5
-    x[2,0] = 0
+    x[1,0] = -1.45
+    x[2,0] = np.deg2rad(3)
     x[3,0] = 0
-    x[4,0] = 0
+    x[4,0] = 0.0
     t = 0
 
-    v_min = -1.5
-    v_max= 1.5
+    v_min = -1.75
+    v_max= 1.75
     w_min = -3.0
     w_max = 3.0
 
@@ -233,29 +234,54 @@ if controller_type == 'GMPC':
 
     curr_actuators = np.array([x[4,0], x[3,0]])
     tau_v = 0.05
+    dt_solve_time = 0.03
+    dt_after_solve = dt - dt_solve_time
+    plot_u = np.zeros((2, nTraj))
 
     for i in range(1,nTraj):
-        x[:3,i] = rk4_step(curr_state, curr_actuators, dt, ackermann_kinematic_model)
+        desired_u[:,i]= controller.solve(curr_state, t)
+        x[:3,i] = rk4_step(curr_state, curr_actuators, dt_solve_time, ackermann_kinematic_model)
         #x[:,i] = step(x[:,i-1], desired_u[:,i-1], dt)
         x[2,i] = wrap_to_pi(x[2,i])
         curr_state = np.array([x[0,i], x[1,i], x[2,i]])
-        euclidean_error[i] = np.hypot(x[0,i] - ref_state[0,i-1], x[1,i] - ref_state[1,i-1])
-        theta_error[i] = wrap_to_pi(x[2,i] - ref_state[2,i-1])
         
-        
-        
-        desired_u[:,i]= controller.solve(curr_state, t)
+        omega = desired_u[1,i]
+        v_cmd = desired_u[0,i]
+        phi_des = np.arctan2(L * omega, x[4,i-1])
+        phi_des = np.clip(phi_des, -0.5, 0.5)
+        a_phi = 1.0 - np.exp(-dt_after_solve / 0.16)
+        a_v   = 1.0 - np.exp(-dt_after_solve / tau_v)
 
-        phi = np.arctan2(L * desired_u[1,i], x[4,i-1])
-        phi_des = np.clip(phi, -0.5, 0.5)
-        a_phi = 1.0 - np.exp(-dt / 0.16)
-        a_v   = 1.0 - np.exp(-dt / tau_v)
-        v_next   = x[4,i-1] + a_v   * (desired_u[0,i]  - x[4,i-1])  
-        
+        v_next   = x[4,i-1] + a_v   * (v_cmd  - x[4,i-1])
         phi_next = x[3,i-1] + a_phi * (phi_des - x[3,i-1])
+
+        
         x[3,i] = phi_next
-        x[4,i] = v_next 
+        x[4,i] = v_next
         curr_actuators = np.array([x[3,i], x[4,i]])
+
+        x[:3,i] = rk4_step(curr_state, curr_actuators, dt_after_solve, ackermann_kinematic_model)
+        x[2,i] = wrap_to_pi(x[2,i])
+
+        euclidean_error[i] = np.hypot(x[0,i] - ref_state[0,i], x[1,i] - ref_state[1,i])
+        theta_error[i] = wrap_to_pi(x[2,i] - ref_state[2,i])
+        speed_error[i] = x[4,i] - ref_control[0,i]
+        omega_error[i] = (wrap_to_pi(x[2,i] - x[2,i-1]))/dt - ref_control[1,i]
+        
+        curr_state = np.array([x[0,i], x[1,i], x[2,i]])
+
+        a_phi = 1.0 - np.exp(-dt_solve_time/ 0.16)
+        a_v   = 1.0 - np.exp(-dt_solve_time / tau_v)
+
+        v_next   = x[4,i] + a_v   * (v_cmd  - x[4,i])
+
+        phi_next = x[3,i] + a_phi * (phi_des - x[3,i])
+        x[3,i] = phi_next
+        plot_u[:,i] = np.array([v_cmd, phi_des])
+        x[4,i] = v_next
+        curr_actuators = np.array([x[3,i], x[4,i]])
+        
+    
         t += dt
         
         print("step",i,"out of ",nTraj)
@@ -268,8 +294,8 @@ elif controller_type == 'NMPC':
     desired_u = np.zeros((2, nTraj))
 
     x[0,0] = -2.9
-    x[1,0] = -1.5
-    x[2,0] = np.deg2rad(0)
+    x[1,0] = -1.45
+    x[2,0] = np.deg2rad(3)
     x[3,0] = 0
     x[4,0] = 0
 
@@ -286,19 +312,19 @@ elif controller_type == 'NMPC':
 
 
     curr_actuators = np.array([x[4,0], u[1,0]])
+    curr_state_1 = np.array([x[0,0], x[1,0], x[2,0], x[3,0]])
     tau_v = 0.05
+    dt_solve_time = 0.03
+    dt_after_solve = dt - dt_solve_time
     for i in range(1,nTraj):
-        x[:3,i] = rk4_step(curr_state, curr_actuators, dt, ackermann_kinematic_model)
+        desired_u[:,i]= controller.solve(curr_state_1, t)
+        x[:3,i] = rk4_step(curr_state, curr_actuators, dt_solve_time, ackermann_kinematic_model)
         #x[:,i] = step(x[:,i-1], desired_u[:,i-1], dt)
         x[2,i] = wrap_to_pi(x[2,i])
         curr_state = np.array([x[0,i], x[1,i], x[2,i]])
-        euclidean_error[i] = np.hypot(x[0,i] - ref_state[0,i-1], x[1,i] - ref_state[1,i-1])
-        theta_error[i] = wrap_to_pi(x[2,i] - ref_state[2,i-1])
-        speed_error[i] = x[4,i-1] - ref_control[0,i-1]
-        omega_error[i] = (wrap_to_pi(x[2,i] - x[2,i-1]))/dt - ref_control[2,i-1]
-        curr_state_1 = np.array([x[0,i], x[1,i], x[2,i], x[3,i-1]])
+        
 
-        desired_u[:,i]= controller.solve(curr_state_1, t)
+        
         steering_ratio = desired_u[1,i]
         v_cmd = desired_u[0,i]
         phi_des = x[3,i-1] + steering_ratio*dt
@@ -306,12 +332,31 @@ elif controller_type == 'NMPC':
         desired_u[1,i] = phi_des
         
         
-        a_phi = 1.0 - np.exp(-dt / 0.16)
-        a_v   = 1.0 - np.exp(-dt / tau_v)
+        a_phi = 1.0 - np.exp(-dt_solve_time / 0.16)
+        a_v   = 1.0 - np.exp(-dt_solve_time / tau_v)
         
         v_next   = x[4,i-1] + a_v   * (desired_u[0,i]  - x[4,i-1])  
         
         phi_next = x[3,i-1] + a_phi * (phi_des - x[3,i-1])
+        x[3,i] = phi_next
+        x[4,i] = v_next
+        curr_actuators = np.array([x[3,i], x[4,i]])
+        x[:3,i] = rk4_step(curr_state, curr_actuators, dt_after_solve, ackermann_kinematic_model)
+        x[2,i] = wrap_to_pi(x[2,i])
+
+        euclidean_error[i] = np.hypot(x[0,i] - ref_state[0,i], x[1,i] - ref_state[1,i])
+        theta_error[i] = wrap_to_pi(x[2,i] - ref_state[2,i])
+        speed_error[i] = x[4,i-1] - ref_control[0,i-1]
+        omega_error[i] = (wrap_to_pi(x[2,i] - x[2,i-1]))/dt - ref_control[2,i-1]
+        curr_state = np.array([x[0,i], x[1,i], x[2,i]])
+        curr_state_1 = np.array([x[0,i], x[1,i], x[2,i], x[3,i]])
+
+        a_phi = 1.0 - np.exp(-dt_after_solve/ 0.16)
+        a_v   = 1.0 - np.exp(-dt_after_solve / tau_v)
+        
+        v_next   = x[4,i] + a_v   * (desired_u[0,i]  - x[4,i])  
+        
+        phi_next = x[3,i] + a_phi * (phi_des - x[3,i])
         x[3,i] = phi_next
         x[4,i] = v_next
         curr_actuators = np.array([x[3,i], x[4,i]])
@@ -326,8 +371,8 @@ elif controller_type == 'FBLINEARIZATION':
     desired_u = np.zeros((2, nTraj))
 
     x[0,0] = -2.9
-    x[1,0] = -1.5
-    x[2,0] = 0
+    x[1,0] = -1.45
+    x[2,0] = np.deg2rad(3)
     x[3,0] = 0
     x[4,0] = 0
 
@@ -380,8 +425,8 @@ if controller_type == 'GMPC_ACKERMANN':
     desired_u = np.zeros((2, nTraj))
 
     x[0,0] = -2.9
-    x[1,0] = -1.5
-    x[2,0] = 0
+    x[1,0] = -1.45
+    x[2,0] = np.deg2rad(3)
     x[3,0] = 0
     x[4,0] = 0
     t = 0
@@ -401,29 +446,45 @@ if controller_type == 'GMPC_ACKERMANN':
 
     curr_actuators = np.array([x[4,0], x[3,0]])
     tau_v = 0.05
-
-    for i in range(1,nTraj):
-        x[:3,i] = rk4_step(curr_state, curr_actuators, dt, ackermann_kinematic_model)
+    dt_solve_time = 0.03
+    dt_after_solve = dt - dt_solve_time
+    for i in range(nTraj):
+        desired_u[:,i] = controller.solve(curr_state, t)
+        x[:3,i] = rk4_step(curr_state, curr_actuators, dt_solve_time, ackermann_kinematic_model)
         #x[:,i] = step(x[:,i-1], desired_u[:,i-1], dt)
         x[2,i] = wrap_to_pi(x[2,i])
         curr_state = np.array([x[0,i], x[1,i], x[2,i]])
-        euclidean_error[i] = np.hypot(x[0,i] - ref_state[0,i-1], x[1,i] - ref_state[1,i-1])
-        theta_error[i] = wrap_to_pi(x[2,i] - ref_state[2,i-1])
-        
-        
-        
-        desired_u[:,i]= controller.solve(curr_state, t)
 
         phi = np.arctan2(L * desired_u[1,i], 1)
         phi_des = np.clip(phi, -0.5, 0.5)
-        a_phi = 1.0 - np.exp(-dt / 0.16)
-        a_v   = 1.0 - np.exp(-dt / tau_v)
+        a_phi = 1.0 - np.exp(-dt_after_solve / 0.16)
+        a_v   = 1.0 - np.exp(-dt_after_solve / tau_v)
         v_next   = x[4,i-1] + a_v   * (desired_u[0,i]  - x[4,i-1])  
         
         phi_next = x[3,i-1] + a_phi * (phi_des - x[3,i-1])
         x[3,i] = phi_next
         x[4,i] = v_next 
         curr_actuators = np.array([x[3,i], x[4,i]])
+        x[:3,i] = rk4_step(curr_state, curr_actuators, dt_after_solve, ackermann_kinematic_model)
+        x[2,i] = wrap_to_pi(x[2,i])
+
+        euclidean_error[i] = np.hypot(x[0,i] - ref_state[0,i], x[1,i] - ref_state[1,i])
+        theta_error[i] = wrap_to_pi(x[2,i] - ref_state[2,i])
+        
+        
+        curr_state = np.array([x[0,i], x[1,i], x[2,i]])
+
+        a_phi = 1.0 - np.exp(-dt_solve_time/ 0.16)
+        a_v   = 1.0 - np.exp(-dt_solve_time / tau_v)
+
+        v_next   = x[4,i] + a_v   * (desired_u[0,i]  - x[4,i])
+        phi_next = x[3,i] + a_phi * (phi_des - x[3,i])
+        x[3,i] = phi_next
+        x[4,i] = v_next
+        curr_actuators = np.array([x[3,i], x[4,i]])
+        
+
+        
         t += dt
         
         print("step",i,"out of ",nTraj)
@@ -455,27 +516,26 @@ if controller_type == 'GMPC_ACKERMANN_PHI_DOT':
 
     curr_actuators = np.array([x[4,0], u[1,0]])
     tau_v = 0.05
+    dt_solve_time = 0.03
+    dt_after_solve = dt - dt_solve_time
+    curr_state_1 = np.array([x[0,0], x[1,0], x[2,0], x[3,0]])
     for i in range(1,nTraj):
-        x[:3,i] = rk4_step(curr_state, curr_actuators, dt, ackermann_kinematic_model)
+        desired_u[:,i]= controller.solve(curr_state_1, t)
+        x[:3,i] = rk4_step(curr_state, curr_actuators, dt_solve_time, ackermann_kinematic_model)
         #x[:,i] = step(x[:,i-1], desired_u[:,i-1], dt)
         x[2,i] = wrap_to_pi(x[2,i])
         curr_state = np.array([x[0,i], x[1,i], x[2,i]])
-        euclidean_error[i] = np.hypot(x[0,i] - ref_state[0,i-1], x[1,i] - ref_state[1,i-1])
-        theta_error[i] = wrap_to_pi(x[2,i] - ref_state[2,i-1])
-        speed_error[i] = x[4,i-1] - ref_control[0,i-1]
-        omega_error[i] = (wrap_to_pi(x[2,i] - x[2,i-1]))/dt - ref_control[1,i-1]
-        curr_state_1 = np.array([x[0,i], x[1,i], x[2,i], x[3,i-1]])
 
-        desired_u[:,i]= controller.solve(curr_state_1, t)
         steering_ratio = desired_u[1,i]
         v_cmd = desired_u[0,i]
+        
         phi_des = x[3,i-1] + steering_ratio*dt
         phi_des = np.clip(phi_des, -0.5, 0.5)
         desired_u[1,i] = phi_des
         
         
-        a_phi = 1.0 - np.exp(-dt / 0.16)
-        a_v   = 1.0 - np.exp(-dt / tau_v)
+        a_phi = 1.0 - np.exp(-dt_after_solve/ 0.16)
+        a_v   = 1.0 - np.exp(-dt_after_solve/ tau_v)
         
         v_next   = x[4,i-1] + a_v   * (desired_u[0,i]  - x[4,i-1])  
         
@@ -483,6 +543,32 @@ if controller_type == 'GMPC_ACKERMANN_PHI_DOT':
         x[3,i] = phi_next
         x[4,i] = v_next
         curr_actuators = np.array([x[3,i], x[4,i]])
+
+        x[:3,i] = rk4_step(curr_state, curr_actuators, dt_after_solve, ackermann_kinematic_model)
+        x[2,i] = wrap_to_pi(x[2,i])
+        euclidean_error[i] = np.hypot(x[0,i] - ref_state[0,i], x[1,i] - ref_state[1,i])
+        theta_error[i] = wrap_to_pi(x[2,i] - ref_state[2,i])
+        speed_error[i] = x[4,i] - ref_control[0,i]
+        omega_error[i] = (wrap_to_pi(x[2,i] - x[2,i-1]))/dt - ref_control[1,i]
+        
+
+        curr_state = np.array([x[0,i], x[1,i], x[2,i]])
+
+        
+        
+        curr_state_1 = np.array([x[0,i], x[1,i], x[2,i], x[3,i]])
+        a_phi = 1.0 - np.exp(-dt_solve_time/ 0.16)
+        a_v   = 1.0 - np.exp(-dt_solve_time / tau_v)
+        
+        v_next   = x[4,i] + a_v   * (desired_u[0,i]  - x[4,i])  
+        
+        phi_next = x[3,i] + a_phi * (phi_des - x[3,i])
+        x[3,i] = phi_next
+        x[4,i] = v_next
+        curr_actuators = np.array([x[3,i], x[4,i]])
+
+        
+        
         t += dt
         print("step",i,"out of ",nTraj)
 
@@ -528,7 +614,12 @@ plt.ylabel(r"$v$ [m/s]")
 plt.setp(ax1b, xticklabels=[])
 ax1c = plt.subplot(212)
 plt.plot(t, x[3, :] * 180.0 / np.pi)
-plt.plot(t, desired_u[1,:]* 180.0 / np.pi, 'r--')
+if controller_type == 'GMPC':
+    plt.plot(t, plot_u[1,:]* 180.0 / np.pi, 'r--')
+elif controller_type == 'GMPC_ACKERMANN':
+    plt.plot(t, np.arctan2(L * desired_u[1,:], 1)* 180.0 / np.pi, 'r--')
+else:
+    plt.plot(t, desired_u[1,:]* 180.0 / np.pi, 'r--')
 plt.grid(color="0.95")
 plt.ylabel(r"$\phi$ [deg]")
 plt.xlabel(r"$t$ [s]")
